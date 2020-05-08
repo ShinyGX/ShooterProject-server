@@ -4,6 +4,7 @@ import struct
 import threading
 from socket import *
 
+from network.NetworkInputStream import NetworkInputStream
 from network.NetworkOutputStream import NetworkOutputStream
 from sql import SqlManager
 
@@ -59,13 +60,14 @@ def start_thread(cs, addr):
 
 
 class DailyHandle(object):
-    __protocol = NetworkOutputStream()
+    __output_stream = NetworkOutputStream()
+    __input_stream = NetworkInputStream()
 
     def handle_msg(self, cs, data):
-
-        data_size = struct.unpack("<i", data[:4])
+        self.__input_stream.reset_stream(data)
+        data_size = self.__input_stream.get_data_len()
         print data_size
-        js = json.loads(data[4:])
+        js = json.loads(self.__input_stream.get_data_bytes())
         print js
         if js["type"] == "login":
             username = js["username"]
@@ -74,7 +76,7 @@ class DailyHandle(object):
                 '''select * from user where user_name=? and user_pwd=?''',
                 (username, pwd))
             if size > 0:
-                self.__protocol.push_string(
+                self.__output_stream.push_string(
                     json.dumps(
                         {
                             "code": 200,
@@ -82,9 +84,9 @@ class DailyHandle(object):
                             "data": True
                         }
                     ))
-                cs.sendall(self.__protocol.flush_stream())
+                cs.sendall(self.__output_stream.flush_stream())
             else:
-                self.__protocol.push_string(
+                self.__output_stream.push_string(
                     json.dumps(
                         {
                             "code": 199,
@@ -92,7 +94,7 @@ class DailyHandle(object):
                             "data": False
                         }
                     ))
-                cs.sendall(self.__protocol.flush_stream())
+                cs.sendall(self.__output_stream.flush_stream())
         elif js["type"] == "register":
             username = js["username"]
             pwd = js["pwd"]
@@ -100,20 +102,20 @@ class DailyHandle(object):
                 '''insert into user (user_name,user_pwd) value(?,?)''',
                 (username, pwd))
 
-            self.__protocol.push_string(
+            self.__output_stream.push_string(
                 json.dumps(
                     {
                         "code": 200,
                         "msg": "register success",
                         "data": True
                     }))
-            cs.sendall(self.__protocol.flush_stream())
+            cs.sendall(self.__output_stream.flush_stream())
         else:
-            self.__protocol.push_string(
+            self.__output_stream.push_string(
                 json.dumps(
                     {
                         "code": 1998,
                         "msg": "unknown type",
                         "data": False
                     }))
-            cs.sendall(self.__protocol.flush_stream())
+            cs.sendall(self.__output_stream.flush_stream())

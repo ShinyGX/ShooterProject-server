@@ -22,7 +22,7 @@ class NetworkOutputStream(object):
             data += struct.pack(t, self.__data[i])
         data_len = struct.pack("i", len(data))
         self.__data = []
-        print "Output Data Size:", len(struct.unpack("i", data_len)), "Output Data TotalSize:", len(data + data_len)
+        print "Output Data Size:", struct.unpack("i", data_len), "Output Data TotalSize:", len(data + data_len)
         return data_len + data
 
     def __push_end_mask(self):
