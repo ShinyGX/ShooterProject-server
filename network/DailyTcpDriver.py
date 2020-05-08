@@ -4,7 +4,7 @@ import struct
 import threading
 from socket import *
 
-from network.Protocol import NetworkProtocol
+from network.NetworkOutputStream import NetworkOutputStream
 from sql import SqlManager
 
 
@@ -59,7 +59,7 @@ def start_thread(cs, addr):
 
 
 class DailyHandle(object):
-    __protocol = NetworkProtocol()
+    __protocol = NetworkOutputStream()
 
     def handle_msg(self, cs, data):
 
@@ -82,7 +82,7 @@ class DailyHandle(object):
                             "data": True
                         }
                     ))
-                cs.sendall(self.__protocol.flush_data())
+                cs.sendall(self.__protocol.flush_stream())
             else:
                 self.__protocol.push_string(
                     json.dumps(
@@ -92,7 +92,7 @@ class DailyHandle(object):
                             "data": False
                         }
                     ))
-                cs.sendall(self.__protocol.flush_data())
+                cs.sendall(self.__protocol.flush_stream())
         elif js["type"] == "register":
             username = js["username"]
             pwd = js["pwd"]
@@ -107,7 +107,7 @@ class DailyHandle(object):
                         "msg": "register success",
                         "data": True
                     }))
-            cs.sendall(self.__protocol.flush_data())
+            cs.sendall(self.__protocol.flush_stream())
         else:
             self.__protocol.push_string(
                 json.dumps(
@@ -116,4 +116,4 @@ class DailyHandle(object):
                         "msg": "unknown type",
                         "data": False
                     }))
-            cs.sendall(self.__protocol.flush_data())
+            cs.sendall(self.__protocol.flush_stream())

@@ -1,7 +1,7 @@
 import struct
 
 
-class NetworkProtocol(object):
+class NetworkOutputStream(object):
     __data = []
 
     def push_char(self, c):
@@ -15,7 +15,7 @@ class NetworkProtocol(object):
         t = str(len(st)) + "s"
         self.__data.append(struct.pack(t, st))
 
-    def flush_data(self):
+    def flush_stream(self):
         data = bytes()
         for i in range(len(self.__data)):
             t = str(len(self.__data[i])) + "s"

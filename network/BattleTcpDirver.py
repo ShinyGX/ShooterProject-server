@@ -3,7 +3,7 @@ from socket import *
 import threading
 import struct
 
-from network.Protocol import NetworkProtocol
+from network.NetworkOutputStream import NetworkOutputStream
 
 
 class BattleTcpServer(object):
@@ -63,7 +63,7 @@ class BattleHandler(object):
     __step_message = []
     __room_list = []
 
-    __protocol = NetworkProtocol()
+    __protocol = NetworkOutputStream()
     __mutex = threading.Lock()
 
     def handle_msg(self, cs, data):
@@ -81,7 +81,7 @@ class BattleHandler(object):
 
     def init_room(self, cs):
         self.__protocol.push_char(1)
-        cs.sendall(self.__protocol.flush_data())
+        cs.sendall(self.__protocol.flush_stream())
 
     def close_connect(self, cs):
         if self.__mutex.acquire():

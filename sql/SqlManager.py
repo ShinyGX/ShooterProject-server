@@ -25,6 +25,13 @@ def select(s, v):
         conn.close()
 
 
+def select_keep_connect(s, v):
+    conn = sqlite3.connect("db.fps")
+    c = conn.cursor()
+    cursor = c.execute(s, v)
+    return conn, cursor
+
+
 def insert(s, v):
     conn = sqlite3.connect("db.fps")
     try:
