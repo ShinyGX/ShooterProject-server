@@ -20,10 +20,10 @@ class DailyTcpServer(object):
 
     def start_session(self):
         try:
-            print "等待玩家"
+            print "Waiting Players"
             while True:
                 cs, addr = self.__socket.accept()
-                print "接收到 %s:%s的玩家" % (addr[0], addr[1])
+                print "Player[%s:%s] join in" % (addr[0], addr[1])
                 start_thread(cs, addr)
 
         except error as e:
