@@ -1,6 +1,5 @@
 # coding=utf-8
 import json
-import struct
 import threading
 from socket import *
 
