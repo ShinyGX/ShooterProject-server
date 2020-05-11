@@ -3,9 +3,11 @@ import json
 import threading
 from socket import *
 
+from core import BattleRoomHandler
+from sql import SqlManager
+
 from network.NetworkInputStream import NetworkInputStream
 from network.NetworkOutputStream import NetworkOutputStream
-from sql import SqlManager
 
 
 class DailyTcpServer(object):
@@ -37,7 +39,7 @@ class DailyThread(threading.Thread):
         super(DailyThread, self).__init__()
         self.__cs = cs
         self.__addr = addr
-        self.__handler = DailyHandle()
+        self.__handler = daily_handle
 
     def run(self):
         try:
@@ -62,18 +64,21 @@ class DailyHandle(object):
     __output_stream = NetworkOutputStream()
     __input_stream = NetworkInputStream()
 
+    __battle_room_handler = BattleRoomHandler()
+
     def handle_msg(self, cs, data):
         self.__input_stream.reset_stream(data)
         data_size = self.__input_stream.get_data_len()
         print data_size
         js = json.loads(self.__input_stream.get_data_bytes())
         print js
+        conn, c = SqlManager.connect_sql()
         if js["type"] == "login":
             username = js["username"]
             pwd = js["pwd"]
-            size = SqlManager.select(
-                '''select * from user where user_name=? and user_pwd=?''',
-                (username, pwd))
+            cursor = c.execute("select * from user where user_name=? and user_pwd=?", (username, pwd))
+            size = len(cursor.fetchall())
+
             if size > 0:
                 self.__output_stream.push_string(
                     json.dumps(
@@ -97,18 +102,56 @@ class DailyHandle(object):
         elif js["type"] == "register":
             username = js["username"]
             pwd = js["pwd"]
-            SqlManager.insert(
-                '''insert into user (user_name,user_pwd) value(?,?)''',
-                (username, pwd))
+
+            cursor = c.execute('''select * from where user_name=?''', (username,))
+            exist_account = len(cursor.fetchall())
+            if exist_account > 0:
+                self.__output_stream.push_string(
+                    json.dumps(
+                        {
+                            "code": 198,
+                            "msg": "account exist",
+                            "data": False
+                        }))
+                cs.sendall(self.__output_stream.flush_stream())
+            else:
+                c.execute(
+                    '''insert into user (user_name,user_pwd) values(?,?)''',
+                    (username, pwd))
+                conn.commit()
+
+                self.__output_stream.push_string(
+                    json.dumps(
+                        {
+                            "code": 200,
+                            "msg": "register success",
+                            "data": True
+                        }))
+                cs.sendall(self.__output_stream.flush_stream())
+        elif js["type"] == "match":
+            name = js["name"]
+            room, client_id = self.__battle_room_handler.get_room(name)
 
             self.__output_stream.push_string(
                 json.dumps(
                     {
                         "code": 200,
-                        "msg": "register success",
-                        "data": True
+                        "msg": "match successfully",
+                        "data": dict(roomId=room.room_id, clientId=client_id)
                     }))
-            cs.sendall(self.__output_stream.flush_stream())
+        elif js["type"] == "ready":
+            client_id = js["clientId"]
+            room_id = js["roomId"]
+            ret = self.__battle_room_handler.ready(room_id, client_id)
+
+            self.__output_stream.push_string(
+                json.dumps({
+                    "code": 200,
+                    "msg": "ready",
+                    "data": dict(ret=ret, ip="", port=None)
+                }))
+
+            # TODO: If All Ready,Start Game
         else:
             self.__output_stream.push_string(
                 json.dumps(
@@ -118,3 +161,8 @@ class DailyHandle(object):
                         "data": False
                     }))
             cs.sendall(self.__output_stream.flush_stream())
+
+        conn.close()
+
+
+daily_handle = DailyHandle()

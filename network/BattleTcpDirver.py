@@ -8,13 +8,15 @@ from network.NetworkOutputStream import NetworkOutputStream
 
 class BattleTcpServer(object):
     __socket = socket(AF_INET, SOCK_STREAM)
-    __address = ('', 9963)
     __buf = 1024
 
-    def __init__(self):
+    def __init__(self, ip, port):
+        self.__address = (ip, port)
         self.__socket.bind(self.__address)
         self.__socket.listen(5)
         self.__msg_handler = BattleHandler()
+        self.__port = port
+        self.__addr = ip
 
     def start_session(self):
         try:
@@ -27,6 +29,9 @@ class BattleTcpServer(object):
         except error as e:
             print e
             pass
+
+    def get_bind_addr(self):
+        return self.__addr, self.__port
 
 
 class BattleThread(threading.Thread):

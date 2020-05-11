@@ -50,7 +50,6 @@ def demo():
 
 
 if __name__ == "__main__":
-    # demo()
     sql.SqlManager.init_sql()
     server = network.DailyTcpServer()
     server.start_session()

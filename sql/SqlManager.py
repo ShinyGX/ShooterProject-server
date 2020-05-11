@@ -1,8 +1,10 @@
 import sqlite3
 
+sql_name = 'db.fps'
+
 
 def init_sql():
-    conn = sqlite3.connect("db.fps")
+    conn = sqlite3.connect(sql_name)
     try:
         c = conn.cursor()
         c.execute('''
@@ -11,33 +13,20 @@ def init_sql():
             `user_name` MESSAGE_TEXT NULL,
             `user_pwd` MESSAGE_TEXT NULL,
             `user_room` INTEGER NULL);''')
+
+        print "all:"
+        cursor = c.execute('''select * from user''')
+        for row in cursor:
+            print row
+
+    except Exception as e:
+        print e
     finally:
         conn.close()
     print "Init successfully"
 
 
-def select(s, v):
-    conn = sqlite3.connect("db.fps")
-    try:
-        c = conn.cursor()
-        cursor = c.execute(s, v)
-        return cursor.rowcount
-    finally:
-        conn.close()
-
-
-def select_keep_connect(s, v):
-    conn = sqlite3.connect("db.fps")
+def connect_sql():
+    conn = sqlite3.connect(sql_name)
     c = conn.cursor()
-    cursor = c.execute(s, v)
-    return conn, cursor
-
-
-def insert(s, v):
-    conn = sqlite3.connect("db.fps")
-    try:
-        c = conn.cursor()
-        c.execute(s, v)
-        conn.commit()
-    finally:
-        conn.close()
+    return conn, c
