@@ -4,6 +4,8 @@ import threading
 from socket import *
 
 from core import BattleRoomHandler
+from core import Singleton
+from network import BattleTcpServer
 from sql import SqlManager
 
 from network.NetworkInputStream import NetworkInputStream
@@ -39,7 +41,7 @@ class DailyThread(threading.Thread):
         super(DailyThread, self).__init__()
         self.__cs = cs
         self.__addr = addr
-        self.__handler = daily_handle
+        self.__handler = DailyHandle()
 
     def run(self):
         try:
@@ -60,18 +62,25 @@ def start_thread(cs, addr):
     thread.start()
 
 
-class DailyHandle(object):
+class DailyHandle(Singleton):
     __output_stream = NetworkOutputStream()
     __input_stream = NetworkInputStream()
 
+    __ip = "127.0.0.1"
+    __port = 9824
+
+    __free_server = []
+    __running_server = []
+
     __battle_room_handler = BattleRoomHandler()
 
+    __mutex = threading.Lock()
+
     def handle_msg(self, cs, data):
+        self.__mutex.acquire()
+
         self.__input_stream.reset_stream(data)
-        data_size = self.__input_stream.get_data_len()
-        print data_size
         js = json.loads(self.__input_stream.get_data_bytes())
-        print js
         conn, c = SqlManager.connect_sql()
         if js["type"] == "login":
             username = js["username"]
@@ -79,12 +88,13 @@ class DailyHandle(object):
             cursor = c.execute("select * from user where user_name=? and user_pwd=?", (username, pwd))
             size = len(cursor.fetchall())
 
+            self.__output_stream.push_char(1)
             if size > 0:
                 self.__output_stream.push_string(
                     json.dumps(
                         {
-                            "code": 200,
-                            "msg": "login success",
+                            "type": "login",
+                            "msg": username,
                             "data": True
                         }
                     ))
@@ -93,7 +103,7 @@ class DailyHandle(object):
                 self.__output_stream.push_string(
                     json.dumps(
                         {
-                            "code": 199,
+                            "type": "login",
                             "msg": "account not found",
                             "data": False
                         }
@@ -105,11 +115,13 @@ class DailyHandle(object):
 
             cursor = c.execute('''select * from where user_name=?''', (username,))
             exist_account = len(cursor.fetchall())
+
+            self.__output_stream.push_char(2)
             if exist_account > 0:
                 self.__output_stream.push_string(
                     json.dumps(
                         {
-                            "code": 198,
+                            "type": "register",
                             "msg": "account exist",
                             "data": False
                         }))
@@ -123,46 +135,76 @@ class DailyHandle(object):
                 self.__output_stream.push_string(
                     json.dumps(
                         {
-                            "code": 200,
-                            "msg": "register success",
+                            "type": "register",
+                            "msg": username,
                             "data": True
                         }))
                 cs.sendall(self.__output_stream.flush_stream())
         elif js["type"] == "match":
             name = js["name"]
-            room, client_id = self.__battle_room_handler.get_room(name)
-
+            room, client_id = self.__battle_room_handler.get_room(name, cs)
+            self.__output_stream.push_char(3)
             self.__output_stream.push_string(
                 json.dumps(
                     {
-                        "code": 200,
-                        "msg": "match successfully",
-                        "data": dict(roomId=room.room_id, clientId=client_id)
+                        "roomId": room.room_id,
+                        "clientId": client_id
                     }))
+            cs.sendall(self.__output_stream.flush_stream())
+
+            if self.__battle_room_handler.is_full(room.room_id):
+                print "room full", room.room_id, client_id
+                self.__output_stream.push_char(6)
+                self.__output_stream.push_string(
+                    json.dumps({
+                        "msg": "matched"
+                    }))
+                room.broadcast(self.__output_stream.flush_stream())
         elif js["type"] == "ready":
             client_id = js["clientId"]
             room_id = js["roomId"]
             ret = self.__battle_room_handler.ready(room_id, client_id)
+            print "ready ", room_id, client_id
+            if not ret:
+                self.__output_stream.push_char(4)
+                self.__output_stream.push_string(
+                    json.dumps({
+                        "error": "Room Not Found"
+                    }))
+                cs.sendall(self.__output_stream.flush_stream())
 
-            self.__output_stream.push_string(
-                json.dumps({
-                    "code": 200,
-                    "msg": "ready",
-                    "data": dict(ret=ret, ip="", port=None)
-                }))
+            # If All Ready,Start Game
+            if self.__battle_room_handler.is_all_ready(room_id):
+                server = self.__get_server()
+                addr = server.get_bind_addr()
+                self.__output_stream.push_char(5)
+                self.__output_stream.push_string(
+                    json.dumps({
+                        "ip": addr[0],
+                        "port": addr[1]
+                    }))
+                self.__battle_room_handler.broadcast_room(room_id, self.__output_stream.flush_stream())
 
-            # TODO: If All Ready,Start Game
         else:
             self.__output_stream.push_string(
                 json.dumps(
                     {
-                        "code": 1998,
+                        "type": "unknown",
                         "msg": "unknown type",
                         "data": False
                     }))
             cs.sendall(self.__output_stream.flush_stream())
 
         conn.close()
+        self.__mutex.release()
 
+    def __get_server(self):
+        if len(self.__free_server) > 0:
+            server = self.__free_server.pop()
+            self.__running_server.append(server)
+        else:
+            server = BattleTcpServer(self.__ip, self.__port)
+            self.__port += 1
+            self.__running_server.append(server)
 
-daily_handle = DailyHandle()
+        return server
