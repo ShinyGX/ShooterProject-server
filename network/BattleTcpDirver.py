@@ -142,10 +142,9 @@ class BattleHandler(object):
             return
 
         if self.__input_stream.get_byte() == 3:
-            t1 = self.__input_stream.get_byte()
+            cid = self.__input_stream.get_byte()
             self.__step_message[client_id] = self.__input_stream.get_last_bytes()
-            self.__obj_pool.get(t1).set_active()
-            
+            self.__obj_pool.get(cid).set_active()
 
         count = length - self.__input_stream.get_len() - 4
         if count > 0:
