@@ -15,6 +15,13 @@ class NetworkOutputStream(object):
         t = str(len(st)) + "s"
         self.__data.append(struct.pack(t, st))
 
+    def push_bool(self, b):
+        self.__data.append(struct.pack("?", b))
+
+    def push_byte_array(self, byte_array):
+        t = str(len(byte_array)) + "s"
+        self.__data.append(struct.pack(t, byte_array))
+
     def flush_stream(self):
         data = bytes()
         for i in range(len(self.__data)):

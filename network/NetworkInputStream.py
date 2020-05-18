@@ -14,18 +14,28 @@ class NetworkInputStream(object):
         self.__seek(4)
         self.__bytes_len = struct.unpack("i", self.__bytes[0:4])
 
+    def get_len(self):
+        return self.__bytes_len
+
     def get_integer(self):
         self.__seek(4)
-        return self.__get()
+        return struct.unpack("i", self.__get())
 
     def get_char(self):
         self.__seek(1)
-        return self.__get()
+        return struct.unpack("c", self.__get())
+
+    def get_byte(self):
+        self.__seek(1)
+        return struct.unpack("b", self.__get())
 
     def get_data_bytes(self):
         if self.__bytes_len == 0:
             return None
         return self.__bytes[4:]
+
+    def get_last_bytes(self):
+        return self.__get()
 
     def get_data_len(self):
         return self.__bytes_len

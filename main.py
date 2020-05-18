@@ -4,6 +4,7 @@ import uuid
 
 import network
 import sql
+from Log.ConsoleLog import ConsoleLog
 
 
 def demo():
@@ -50,6 +51,8 @@ def demo():
 
 
 if __name__ == "__main__":
-    sql.SqlManager.init_sql()
-    server = network.DailyTcpServer()
-    server.start_session()
+    a = [[] for i in range(10)]
+    print  a
+    # sql.SqlManager.init_sql()
+    # server = network.DailyTcpServer()
+    # server.start_session()
