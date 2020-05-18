@@ -10,3 +10,4 @@ class ConsoleLog(Singleton):
 
     def show_log(self):
         print "\r %s" % self.__log,
+        self.__log = ""

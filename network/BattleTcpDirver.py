@@ -1,8 +1,9 @@
 # coding=utf-8
-
+import struct
 from socket import *
 import threading
 import random
+from time import sleep
 
 from enum import Enum, unique
 
@@ -84,10 +85,26 @@ class BattleThread(threading.Thread):
         return self.__active >= 0
 
     def get_addr(self):
-        return self.__addr
+        return self.__addr[0]
 
     def get_client_id(self):
         return self.__client_id
+
+
+class BattleSyncServer(threading.Thread):
+
+    def __init__(self, handler):
+        super(BattleSyncServer, self).__init__()
+        self.__handler = handler
+        self.__running = True
+
+    def run(self):
+        while self.__running:
+            self.__handler.send_all_player()
+            sleep(0.066)
+
+    def set_run(self, value):
+        self.__running = value
 
 
 class BattleHandler(object):
@@ -105,7 +122,7 @@ class BattleHandler(object):
     __frame_data = bytes()
 
     def __init__(self, max_player):
-        self.__timer = threading.Timer(1 / 15, self.__send_all_player)
+        self.__timer = BattleSyncServer(self)
         self.__step_message = [[] for i in range(max_player)]
         self.__obj_pool = IndexObjectPool(max_player)
 
@@ -120,14 +137,15 @@ class BattleHandler(object):
             self.__log.set_log("获取信息包大小失败\n")
             return
 
-        if length < self.__input_stream.get_len() + 4:
+        if length < (self.__input_stream.get_len() + 4):
             self.__log.set_log("信息包大小不匹配\n")
             return
 
-        if self.__input_stream.get_byte() == BattleProtocolType.frame:
+        if self.__input_stream.get_byte() == 3:
             t1 = self.__input_stream.get_byte()
             self.__step_message[client_id] = self.__input_stream.get_last_bytes()
             self.__obj_pool.get(t1).set_active()
+            
 
         count = length - self.__input_stream.get_len() - 4
         if count > 0:
@@ -137,13 +155,14 @@ class BattleHandler(object):
         battle_thread, client_id = self.__obj_pool.get_obj(BattleThread(cs, addr, self))
         battle_thread.set_client_id(client_id)
         battle_thread.start()
-        self.__timer.start()
 
     def init_room(self, thread):
         self.__mutex.acquire()
-        self.__protocol.push_char(BattleProtocolType.init)
+        self.__protocol.push_char(1)
         self.__protocol.push_char(thread.get_client_id())
+        self.__protocol.push_char(255)
         thread.send(self.__protocol.flush_stream())
+        self.__timer.start()
         self.__mutex.release()
 
     def close_connect(self, client_id):
@@ -153,11 +172,12 @@ class BattleHandler(object):
             finally:
                 self.__mutex.release()
 
-    def __send_all_player(self):
+    def send_all_player(self):
         self.__mutex.acquire()
         if self.__obj_pool.get_active_count() <= 0:
             if len(self.__frame) > 0:
                 self.__log.set_log("战斗结束\n")
+                self.__timer.set_run(False)
                 return
 
         if self.__frame == 0:
@@ -166,7 +186,7 @@ class BattleHandler(object):
         temp = self.__step_message
         length = len(temp)
 
-        self.__protocol.push_char(BattleProtocolType.frame)
+        self.__protocol.push_char(3)
         self.__protocol.push_integer(length)
 
         for i in range(length):
@@ -174,17 +194,17 @@ class BattleHandler(object):
             self.__protocol.push_bool(temp[i])
 
         if len(self.__frame) == 0:
-            self.__protocol.push_char(BattleProtocolType.random_seed)
+            self.__protocol.push_char(2)
             self.__protocol.push_integer(random.randint(0, 10000))
 
-        self.__protocol.push_char(BattleProtocolType.end)
-        self.__log.set_log("生成帧信息[%d]" % length)
+        self.__protocol.push_char(255)
+        self.__log.set_log("生成帧信息[%d]\n" % length)
 
         self.__frame_data = self.__protocol.flush_stream()
         self.__frame.append(self.__frame_data)
 
         self.__obj_pool.foreach(self.send_to_client)
-        self.__log.set_log("同步第[%d]" % len(self.__frame))
+        self.__log.set_log("同步第[%d]\n" % len(self.__frame))
 
         self.__log.show_log()
         self.__mutex.release()

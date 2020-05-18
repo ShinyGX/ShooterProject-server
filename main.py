@@ -51,8 +51,6 @@ def demo():
 
 
 if __name__ == "__main__":
-    a = [[] for i in range(10)]
-    print  a
-    # sql.SqlManager.init_sql()
-    # server = network.DailyTcpServer()
-    # server.start_session()
+    sql.SqlManager.init_sql()
+    server = network.BattleTcpServer("127.0.0.1", 9999)
+    server.start_session()
