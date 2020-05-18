@@ -190,7 +190,7 @@ class BattleHandler(object):
 
         for i in range(length):
             self.__protocol.push_bool(len(temp[i]) > 0)
-            self.__protocol.push_bool(temp[i])
+            self.__protocol.push_byte_array(temp[i])
 
         if len(self.__frame) == 0:
             self.__protocol.push_char(2)

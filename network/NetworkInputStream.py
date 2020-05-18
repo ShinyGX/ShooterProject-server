@@ -35,9 +35,7 @@ class NetworkInputStream(object):
         return self.__bytes[4:]
 
     def get_last_bytes(self):
-        s = len(self.__bytes[self.__index + self.__last_offset:])
-        t = str(s) + "s"
-        return struct.unpack(t, self.__bytes[self.__index + self.__last_offset:])
+        return self.__bytes[self.__index + self.__last_offset:]
 
     def get_data_len(self):
         return self.__bytes_len
