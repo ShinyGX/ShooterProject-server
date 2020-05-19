@@ -10,7 +10,7 @@ class IndexObjectPool(object):
     def get_obj(self, obj):
         for i in range(len(self.__usedList)):
             if not self.__usedList[i]:
-                if len(self.__objectList) < i:
+                if len(self.__objectList) > i:
                     self.__objectList[i] = obj
                 else:
                     self.__objectList.append(obj)

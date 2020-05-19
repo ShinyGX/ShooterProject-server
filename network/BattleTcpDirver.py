@@ -1,5 +1,5 @@
 # coding=utf-8
-import struct
+
 from socket import *
 import threading
 import random
@@ -143,6 +143,7 @@ class BattleHandler(object):
 
         if self.__input_stream.get_byte() == 3:
             cid = self.__input_stream.get_byte()
+            self.__log.set_log("cid:" + str(cid) + "\n")
             self.__step_message[client_id] = self.__input_stream.get_last_bytes()
             self.__obj_pool.get(cid).set_active()
 
@@ -186,7 +187,7 @@ class BattleHandler(object):
         length = len(temp)
 
         self.__protocol.push_char(3)
-        self.__protocol.push_integer(length)
+        self.__protocol.push_char(length)
 
         for i in range(length):
             self.__protocol.push_bool(len(temp[i]) > 0)
