@@ -47,6 +47,8 @@ class BattleThread(threading.Thread):
 
     __client_id = -1
 
+    __running = True
+
     def __init__(self, cs, addr, msg_handler):
         super(BattleThread, self).__init__()
         self.__cs = cs
@@ -62,7 +64,7 @@ class BattleThread(threading.Thread):
     def run(self):
         try:
             self.__msg_handler.init_room(self)
-            while True:
+            while self.__running:
                 data = self.__cs.recv(self.__buf)
                 if not data:
                     break
@@ -71,11 +73,11 @@ class BattleThread(threading.Thread):
             print e
             pass
         finally:
-            self.close()
+            self.__msg_handler.close_connect(self.__client_id)
+            self.__cs.close()
 
     def close(self):
-        self.__msg_handler.close_connect(self.__client_id)
-        self.__cs.close()
+        self.__running = False
 
     def set_active(self):
         self.__active = 30
@@ -178,6 +180,7 @@ class BattleHandler(object):
             if len(self.__frame) > 0:
                 self.__log.set_log("战斗结束\n")
                 self.__timer.set_run(False)
+                self.__log.show_log()
                 return
 
         if self.__frame == 0:
@@ -202,6 +205,7 @@ class BattleHandler(object):
 
         self.__frame_data = self.__protocol.flush_stream()
         self.__frame.append(self.__frame_data)
+        self.__log.set_log("帧长[%d]\n" % len(self.__frame_data))
 
         self.__obj_pool.foreach(self.send_to_client)
         self.__log.set_log("同步第[%d]\n" % len(self.__frame))
@@ -213,7 +217,6 @@ class BattleHandler(object):
         if not thread.check_active():
             self.__log.set_log("客户端[%s] 断开了连接" % thread.get_addr())
             thread.close()
-            self.__obj_pool.recover(thread.get_client_id)
 
         thread.send(self.__frame_data)
 
