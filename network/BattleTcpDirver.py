@@ -1,16 +1,25 @@
 # coding=utf-8
 
+import struct
 from socket import *
 import threading
 import random
 from time import sleep
-
-from enum import Enum, unique
+from protocol.Command import InputCommand
+from protocol.Command import SyncCommand
+from protocol.Command import ConnectionCommand
+from protocol.Command import CreateNewPlayerCommand
+from core.Unit import Unit
 
 from Log.ConsoleLog import ConsoleLog
 from network.IndexObjectPool import IndexObjectPool
 from network.NetworkInputStream import NetworkInputStream
 from network.NetworkOutputStream import NetworkOutputStream
+
+COMMAND_TYPE_INPUT = 0
+COMMAND_TYPE_SYNC = 1
+COMMAND_TYPE_CONNECT = 2
+COMMAND_TYPE_DISCONNECT = 3
 
 
 class BattleTcpServer(object):
@@ -21,7 +30,7 @@ class BattleTcpServer(object):
         self.__address = (ip, port)
         self.__socket.bind(self.__address)
         self.__socket.listen(5)
-        self.__msg_handler = BattleHandler(5)
+        self.__msg_handler = ServiceGameLoop()
         self.__port = port
         self.__addr = ip
 
@@ -30,8 +39,8 @@ class BattleTcpServer(object):
             print "等待玩家"
             while True:
                 cs, addr = self.__socket.accept()
-                print "接收到 %s:%s的玩家" % (addr[0], addr[1])
-                self.__msg_handler.start_thead(cs, addr)
+                print addr
+                self.__msg_handler.start_new_connect(cs, addr)
 
         except error as e:
             print e
@@ -45,36 +54,51 @@ class BattleThread(threading.Thread):
     __active = 30
     __buf = 1024
 
+    __head_size = 4
+
     __client_id = -1
 
     __running = True
 
     def __init__(self, cs, addr, msg_handler):
         super(BattleThread, self).__init__()
-        self.__cs = cs
-        self.__addr = addr
+        self.cs = cs
+        self.addr = addr
         self.__msg_handler = msg_handler
 
     def set_client_id(self, client_id):
         self.__client_id = client_id
 
     def send(self, data):
-        self.__cs.sendall(data)
+        try:
+            self.cs.sendall(data)
+        except error as e:
+            print e
 
     def run(self):
         try:
-            self.__msg_handler.init_room(self)
             while self.__running:
-                data = self.__cs.recv(self.__buf)
+                data = self.cs.recv(self.__head_size)
                 if not data:
                     break
-                self.__msg_handler.handle_msg(self.__client_id, data)
+
+                size = struct.unpack("i", data)[0]
+                recv_data = b''
+                recv_size = size
+                print "recv size %d" % size
+                while len(recv_data) < size:
+                    recv_data = self.cs.recv(recv_size)
+                    recv_size -= len(recv_data)
+
+                self.__msg_handler.handle_msg(self, recv_data)
+
         except error as e:
             print e
             pass
         finally:
-            self.__msg_handler.close_connect(self.__client_id)
-            self.__cs.close()
+            self.__msg_handler.disconnected(self)
+            self.cs.close()
+            print "close cs"
 
     def close(self):
         self.__running = False
@@ -85,9 +109,6 @@ class BattleThread(threading.Thread):
     def check_active(self):
         self.__active -= 1
         return self.__active >= 0
-
-    def get_addr(self):
-        return self.__addr[0]
 
     def get_client_id(self):
         return self.__client_id
@@ -102,128 +123,123 @@ class BattleSyncServer(threading.Thread):
 
     def run(self):
         while self.__running:
-            self.__handler.send_all_player()
-            sleep(0.066)
+            self.__handler.update()
+            sleep(0.02)
 
     def set_run(self, value):
         self.__running = value
 
 
-class BattleHandler(object):
+class ServiceGameLoop(object):
     __buf = 1024
-    __step_message = []
-
-    __frame = []
-
-    __protocol = NetworkOutputStream()
-    __input_stream = NetworkInputStream()
-
     __mutex = threading.Lock()
-    __log = ConsoleLog()
 
-    __frame_data = bytes()
+    __frame_count = 0
+    __sync_list = []
 
-    def __init__(self, max_player):
-        self.__timer = BattleSyncServer(self)
-        self.__step_message = [[] for i in range(max_player)]
-        self.__obj_pool = IndexObjectPool(max_player)
+    __sync_interval = 4
 
-    def handle_msg(self, client_id, data):
+    __unit_dict = dict()
+    __connect_dict = dict()
+
+    __input = NetworkInputStream(None)
+
+    def __init__(self):
+        self.__game_loop_services = BattleSyncServer(self)
+        self.__game_loop_services.start()
+
+    def start_new_connect(self, cs, addr):
+        if not self.__connect_dict.has_key(addr):
+            connect = BattleThread(cs, addr, self)
+            self.__connect_dict[addr] = connect
+            connect.start()
+
+    def update(self):
         self.__mutex.acquire()
-        self.__input_stream.reset_stream(data)
-        self.__process_data(client_id, len(data))
+
+        self.__frame_count += 1
+        if self.__frame_count % self.__sync_interval == 0:
+            sync = SyncCommand()
+            sync.syncSnapshots = self.__sync_list
+            self.send_to_all(sync)
+            # print "send sync %d" % len(self.__sync_list)
+            self.__sync_list = []
+
+        frame_sync_list = []
+        for unit in self.__unit_dict:
+            frame = -1
+            snapshot_list = self.__unit_dict[unit].snapshot_list
+            while len(snapshot_list) > 0 and \
+                    (self.__unit_dict[unit].count > self.__sync_interval or \
+                     frame == -1 or snapshot_list[0].frame == frame):
+
+                snapshot = snapshot_list[0]
+                frame_sync_list.append(snapshot)
+                self.__unit_dict[unit].snapshot_list.pop(0)
+                snapshot_list = self.__unit_dict[unit].snapshot_list
+
+                if frame != snapshot.frame:
+                    frame = snapshot.frame
+                    self.__unit_dict[unit].count -= 1
+
+        if len(frame_sync_list) > 0:
+            self.__sync_list.append(frame_sync_list)
+
         self.__mutex.release()
 
-    def __process_data(self, client_id, length):
-        if length < 4:
-            self.__log.set_log("获取信息包大小失败\n")
-            return
-
-        if length < (self.__input_stream.get_len() + 4):
-            self.__log.set_log("信息包大小不匹配\n")
-            return
-
-        if self.__input_stream.get_byte() == 3:
-            cid = self.__input_stream.get_byte()
-            self.__log.set_log("cid:" + str(cid) + "\n")
-            self.__step_message[client_id] = self.__input_stream.get_last_bytes()
-            self.__obj_pool.get(cid).set_active()
-
-        count = length - self.__input_stream.get_len() - 4
-        if count > 0:
-            self.__process_data(client_id, count)
-
-    def start_thead(self, cs, addr):
-        battle_thread, client_id = self.__obj_pool.get_obj(BattleThread(cs, addr, self))
-        battle_thread.set_client_id(client_id)
-        battle_thread.start()
-
-    def init_room(self, thread):
+    def handle_msg(self, client, data):
         self.__mutex.acquire()
-        self.__protocol.push_char(1)
-        self.__protocol.push_char(thread.get_client_id())
-        self.__protocol.push_char(255)
-        thread.send(self.__protocol.flush_stream())
-        self.__timer.start()
+
+        self.__input.reset_stream(data, False)
+        command_type = self.__input.get_integer()
+        if command_type == COMMAND_TYPE_INPUT:
+            if not self.__unit_dict.has_key(client.get_client_id()):
+                self.__unit_dict[client.get_client_id()] = Unit()
+
+            msg = InputCommand()
+            msg.snapshots = self.__unit_dict[client.get_client_id()].snapshot_list
+            msg.deserialize(self.__input)
+
+            self.__unit_dict[client.get_client_id()].snapshot_list = msg.snapshots
+            self.__unit_dict[client.get_client_id()].count += msg.snapshotFrameCount
+
+            print "handler input msg"
+
+        elif command_type == COMMAND_TYPE_CONNECT:
+            print "Recv Connect Msg"
+            msg = ConnectionCommand()
+            msg.deserialize(self.__input)
+            unit_id = msg.id
+
+            if not self.__unit_dict.has_key(unit_id):
+                self.__unit_dict[unit_id] = Unit()
+                self.__unit_dict[unit_id].cs = client.cs
+                client.set_client_id(unit_id)
+                print "%d login success" % unit_id
+
+                command = CreateNewPlayerCommand()
+                command.id = unit_id
+                command.hp = 100
+
+                self.send_to_all(command)
+
+            else:
+                print "Account Already Login"
+
         self.__mutex.release()
 
-    def close_connect(self, client_id):
-        if self.__mutex.acquire():
-            try:
-                self.__obj_pool.recover(client_id)
-            finally:
-                self.__mutex.release()
+    def send_to_one(self, unit_id, command):
+        if self.__unit_dict.has_key(unit_id):
+            self.__unit_dict[unit_id].cs.sendall(command.serialize())
 
-    def send_all_player(self):
-        self.__mutex.acquire()
-        if self.__obj_pool.get_active_count() <= 0:
-            if len(self.__frame) > 0:
-                self.__log.set_log("战斗结束\n")
-                self.__timer.set_run(False)
-                self.__log.show_log()
-                return
+    def send_to_all(self, command):
+        for k in self.__unit_dict:
+            pack = command.serialize()
+            print "send size %d" % len(pack)
+            self.__unit_dict[k].cs.sendall(pack)
 
-        if self.__frame == 0:
-            self.__log.set_log("战斗开始\n")
-
-        temp = self.__step_message
-        length = len(temp)
-
-        self.__protocol.push_char(3)
-        self.__protocol.push_char(length)
-
-        for i in range(length):
-            self.__protocol.push_bool(len(temp[i]) > 0)
-            self.__protocol.push_byte_array(temp[i])
-
-        if len(self.__frame) == 0:
-            self.__protocol.push_char(2)
-            self.__protocol.push_integer(random.randint(0, 10000))
-
-        self.__protocol.push_char(255)
-        self.__log.set_log("生成帧信息[%d]\n" % length)
-
-        self.__frame_data = self.__protocol.flush_stream()
-        self.__frame.append(self.__frame_data)
-        self.__log.set_log("帧长[%d]\n" % len(self.__frame_data))
-
-        self.__obj_pool.foreach(self.send_to_client)
-        self.__log.set_log("同步第[%d]\n" % len(self.__frame))
-
-        self.__log.show_log()
-        self.__mutex.release()
-
-    def send_to_client(self, thread):
-        if not thread.check_active():
-            self.__log.set_log("客户端[%s] 断开了连接" % thread.get_addr())
-            thread.close()
-
-        thread.send(self.__frame_data)
-
-
-@unique
-class BattleProtocolType(Enum):
-    init = 1,
-    random_seed = 2,
-    frame = 3,
-    end = 255
+    def disconnected(self, client):
+        if client.addr in self.__connect_dict:
+            del self.__connect_dict[client.addr]
+        if client.get_client_id() in self.__unit_dict:
+            del self.__unit_dict[client.get_client_id()]

@@ -64,7 +64,7 @@ def start_thread(cs, addr):
 
 class DailyHandle(Singleton):
     __output_stream = NetworkOutputStream()
-    __input_stream = NetworkInputStream()
+    __input_stream = NetworkInputStream(None)
 
     __ip = "127.0.0.1"
     __port = 9824

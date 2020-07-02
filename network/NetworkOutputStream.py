@@ -20,14 +20,31 @@ class NetworkOutputStream(object):
         self.__type.append(1)
 
     def push_bool(self, b):
-        self.__data.append(struct.pack("?", b))
+        if b is True:
+            self.push_integer(1)
+        else:
+            self.push_integer(0)
+
+    def push_float(self, d):
+        self.__data.append(struct.pack("d", d))
         self.__type.append(1)
+
+    def push_vector3(self, v3):
+        self.push_float(v3.x)
+        self.push_float(v3.y)
+        self.push_float(v3.z)
+
+    def push_quaternion(self, q):
+        self.push_float(q.x)
+        self.push_float(q.y)
+        self.push_float(q.z)
+        self.push_float(q.w)
 
     def push_byte_array(self, byte_array):
         self.__data.append(byte_array)
         self.__type.append(0)
 
-    def flush_stream(self):
+    def flush_stream(self, has_head=True):
         data = bytes()
         for i in range(len(self.__data)):
             if self.__type[i] == 1:
@@ -40,8 +57,12 @@ class NetworkOutputStream(object):
         data_len = struct.pack("i", len(data))
         self.__data = []
         self.__type = []
-        print "Output Data Size:", struct.unpack("i", data_len), "Output Data TotalSize:", len(data + data_len)
-        return data_len + data
+        if has_head:
+            return data_len + data
+        else:
+            return data
+        # print "Output Data Size:", struct.unpack("i", data_len)[0], "Output Data TotalSize:", len(data + data_len)
+        # return data_len + data
 
     def __push_end_mask(self):
         self.push_char(255)
